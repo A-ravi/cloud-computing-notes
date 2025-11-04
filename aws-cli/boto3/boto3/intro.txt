@@ -1,0 +1,188 @@
+Boto3 Client and Resources
+
+AWS CLI (uses)
+|
+|
+\/
+botocore <-------------- boto3.client() <---------------------- boto3.resource()
+
+Client <-- Low Level
+Resource <-- High Level
+
+Feature	    boto3.client()	                    boto3.resource()
+Level	    Low-level (maps to AWS API)	        High-level (object abstraction)
+Data type	Dicts (JSON-like)	                Python objects
+Performance	Slightly faster (direct)	        Slightly slower (layered)
+Coverage	All AWS services	                Only select services (e.g., S3, EC2, DynamoDB, SQS, SNS)
+Use case	Automation, Lambda, infra setup	    Data ops, scripts, admin tools
+Example	    client.list_buckets()	            for b in s3.buckets.all()
+Relationship	Direct API call	                Uses client internally
+
+==========
+
+DynamoDB Expression Parameters
+
+1️⃣ UpdateExpression
+An update statement that tells DynamoDB which attributes to add, remove, or modify in an item.
+👉 Used in: update_item()
+Eg:
+table.update_item(
+    Key={'user_id': 'u123'},
+    UpdateExpression="SET age = :a, city = :c",
+    ExpressionAttributeValues={
+        ':a': 30,
+        ':c': 'Mumbai'
+    },
+    ReturnValues="UPDATED_NEW"
+)
+
+2️⃣ ExpressionAttributeValues
+A mapping between placeholders and actual values.
+👉 Used in: most expressions (UpdateExpression, FilterExpression, ConditionExpression, etc.)
+Eg:
+ExpressionAttributeValues={
+    ':min_age': 25,
+    ':city': 'Pune'
+}
+Then you can use it in an expression
+FilterExpression="age > :min_age AND city = :city"
+
+3️⃣ ReturnValues
+Controls what DynamoDB returns after a write operation.
+👉 Used in: update_item() or put_item()
+| Value           | Meaning                                     |
+| --------------- | ------------------------------------------- |
+| `"NONE"`        | Return nothing (default)                    |
+| `"ALL_OLD"`     | Return full item before update              |
+| `"UPDATED_OLD"` | Return only updated attributes (old values) |
+| `"ALL_NEW"`     | Return full item after update               |
+| `"UPDATED_NEW"` | Return only updated attributes (new values) |
+Eg:
+response = table.update_item(
+    Key={'user_id': 'u123'},
+    UpdateExpression="SET age = :a",
+    ExpressionAttributeValues={':a': 31},
+    ReturnValues="ALL_NEW"
+)
+print(response['Attributes'])
+
+4️⃣ KeyConditionExpression
+Specifies how to match items based on keys — That means Partition Key (required) and optionally Sort Key.
+👉 Used in: query() only (NOT scan)
+Eg:
+from boto3.dynamodb.conditions import Key
+response = table.query(
+    KeyConditionExpression=Key('user_id').eq('u123') &
+                           Key('timestamp').between(1700000000, 1800000000)
+)
+
+5️⃣ FilterExpression
+Filters items after DynamoDB reads them.
+It doesn’t reduce read cost — only filters results client-side.
+👉 Used in: scan() or query()
+Eg:
+from boto3.dynamodb.conditions import Attr
+response = table.scan(
+    FilterExpression=Attr('age').gt(25) & Attr('city').eq('Delhi')
+)
+Difference:
+| Expression Type          | Works On              | Efficiency                |
+| ------------------------ | --------------------- | ------------------------- |
+| `KeyConditionExpression` | Primary key / indexes | ⚡ Fast                    |
+| `FilterExpression`       | Any attribute         | 🐢 Slower (post-filtered) |
+
+6️⃣ ConditionExpression
+Specifies a precondition that must be true for the write to happen.
+If it fails, DynamoDB throws a ConditionalCheckFailedException.
+👉 Used in: put_item(), update_item(), delete_item()
+Eg: Allow updates only if the user exitst and age < 50:
+table.update_item(
+    Key={'user_id': 'u123'},
+    UpdateExpression="SET age = :a",
+    ExpressionAttributeValues={':a': 31},
+    ConditionExpression=Attr('age').lt(50)
+)
+
+7️⃣ ProjectionExpression
+Defines which attributes to return from the item (not all).
+👉 Used in: get_item(), scan(), query()
+Eg:
+response = table.get_item(
+    Key={'user_id': 'u123'},
+    ProjectionExpression='user_id, name'
+)
+print(response['Item'])
+
+8️⃣ ExpressionAttributeNames
+👉 Used in: When attribute names conflict with reserved words or contain special characters.
+A dictionary that maps placeholder names to real attribute names.
+Eg: 
+size is reserved word, so this will fail:
+UpdateExpression="SET size = :s"
+Fix:
+UpdateExpression="SET #sz = :s",
+ExpressionAttributeNames={'#sz': 'size'},
+ExpressionAttributeValues={':s': 50}
+
+9️⃣ ExclusiveStartKey & LastEvaluatedKey
+Used to fetch the next page of results if the response is paginated.
+👉 Used in: Pagination for scan() or query()
+Eg:
+response = table.scan(Limit=5)
+while 'LastEvaluatedKey' in response:
+    response = table.scan(
+        ExclusiveStartKey=response['LastEvaluatedKey']
+    )
+
+| Expression                  | Used In                       | Purpose                                 |
+| --------------------------- | ----------------------------- | --------------------------------------- |
+| `UpdateExpression`          | `update_item()`               | Defines attributes to modify            |
+| `ExpressionAttributeValues` | All                           | Substitute values safely                |
+| `ReturnValues`              | `update_item()`, `put_item()` | Decide what to return                   |
+| `KeyConditionExpression`    | `query()`                     | Filter by key (fast, indexed)           |
+| `FilterExpression`          | `scan()`, `query()`           | Filter after read (slower)              |
+| `ConditionExpression`       | Writes                        | Conditional write protection            |
+| `ProjectionExpression`      | Reads                         | Return specific attributes              |
+| `ExpressionAttributeNames`  | All                           | Handle reserved/special attribute names |
+| `ExclusiveStartKey`         | `scan()`, `query()`           | Pagination control                      |
+
+
+==========
+
+CloudWatch
+
+| Component          | Description                                                        |
+| ------------------ | ------------------------------------------------------------------ |
+| **Metrics**        | Time-series data (e.g., CPU, Memory, Invocations).                 |
+| **Namespaces**     | Logical containers for metrics (e.g., `AWS/EC2`, `AWS/Lambda`).    |
+| **Dimensions**     | Key-value pairs to categorize metrics (e.g., InstanceId=“i-1234”). |
+| **Alarms**         | Monitor metrics and trigger actions.                               |
+| **Logs**           | Application/system logs stored in Log Groups and Log Streams.      |
+| **Dashboards**     | Visualization panels.                                              |
+| **Events (Rules)** | Detect and react to AWS system events.                             |
+
+Logging
+
+| Issue                     | Reason                                   | Fix                            |
+| ------------------------- | ---------------------------------------- | ------------------------------ |
+| No metrics returned       | Wrong namespace or dimension             | Verify namespace + instance ID |
+| Log stream already exists | Duplicate name                           | Use unique logStreamName       |
+| Alarm not triggering      | Threshold or evaluation period too short | Adjust alarm settings          |
+
+
+===========
+
+SQS
+How SQS Works (Conceptually)
+| Step | Description                                              |
+| ---- | -------------------------------------------------------- |
+| 1️⃣  | A **producer** sends messages to a queue.                |
+| 2️⃣  | Messages are stored safely (durable, redundant).         |
+| 3️⃣  | A **consumer** polls (receives) messages from the queue. |
+| 4️⃣  | After processing, the consumer **deletes** the message.  |
+
+Types of Queues
+| Type               | Description                                    | Use Case                             |
+| ------------------ | ---------------------------------------------- | ------------------------------------ |
+| **Standard Queue** | Best-effort ordering, *at-least-once delivery* | High throughput, event-based systems |
+| **FIFO Queue**     | Exactly-once processing, preserves order       | Financial transactions, ordered logs |
