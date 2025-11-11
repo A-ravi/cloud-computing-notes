@@ -1,0 +1,12 @@
+{
+  "env": {
+    "ENABLE_PREFIX_DELEGATION": "true",
+    "WARM_PREFIX_TARGET": "1",
+    "ENABLE_POD_ENI": "true",
+    "POD_SECURITY_GROUP_ENFORCING_MODE": "standard"
+  },
+  "enableNetworkPolicy": true,
+  "nodeAgent": {
+    "enablePolicyEventLogs": true
+  }
+}
