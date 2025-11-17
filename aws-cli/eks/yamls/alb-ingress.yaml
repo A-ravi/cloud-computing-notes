@@ -1,0 +1,70 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: demo-alb-ingress
+  namespace: app
+  annotations:
+    kubernetes.io/ingress.class: alb
+
+    # --- ALB Settings ---
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/load-balancer-name: demo-alb
+
+    # --- Health Check Settings ---
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/healthcheck-port: "80"
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "5"
+    alb.ingress.kubernetes.io/success-codes: "200-399"
+
+    # --- SSL / HTTPS Redirect (optional) ---
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+
+    # Uncomment for HTTPS:
+    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:REGION:ACCOUNT:certificate/ID
+
+    # --- WAF (optional) ---
+    # alb.ingress.kubernetes.io/waf-acl-id: "waf-id"
+
+spec:
+  rules:
+  - host: "*"
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: demo-service
+            port:
+              number: 80
+
+
+---
+# A simple igress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: demo-alb-hostless
+  namespace: app
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: demo-service
+                port:
+                  number: 80
+---
+# kubectl -n kube-system get ingress demo-alb-hostless -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+
+

@@ -1,0 +1,126 @@
+Prometheus is a monitoring + alerting system optimized for metrics (time-series data).
+
+| Concept                | Meaning                                                                    |
+| ---------------------- | -------------------------------------------------------------------------- |
+| **Pull-based metrics** | Prometheus **pulls** metrics from targets (not push) using HTTP `/metrics` |
+| **Time-series DB**     | Stores metrics as timestamped numeric data                                 |
+| **PromQL**             | A powerful query language to analyze metrics                               |
+| **Service Discovery**  | Discovers what to scrape automatically (Kubernetes!)                       |
+
+
+ ┌───────────┐
+ │  Targets  │  (Pods, Nodes, Apps, K8s components)
+ │ expose    │
+ │ /metrics  │
+ └─────┬─────┘
+       │  HTTP scrape
+       ▼
+ ┌───────────────┐
+ │  Prometheus   │
+ │(Server + TSDB)|
+ └─────┬─────────┘
+       │  PromQL
+       ▼
+ ┌───────────────┐
+ │   Grafana     │  (Dashboards)
+ └───────────────┘
+
+How Targets Get Registered (Service Discovery)
+Prometheus Operator uses these Custom Resources:
+| CRD                | Purpose              |
+| ------------------ | -------------------- |
+| **ServiceMonitor** | Scrape services      |
+| **PodMonitor**     | Scrape pods directly |
+| **PrometheusRule** | Alerts               |
+
+
+Step 1 — Add labels to your Kubernetes Service
+Assume your app exposes /metrics on port 8080.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-app-svc
+  labels:
+    app: my-app
+spec:
+  selector:
+    app: my-app
+  ports:
+    - port: 8080
+      name: metrics
+
+Step 2 — Create a ServiceMonitor
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: my-app-monitor
+  namespace: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: my-app
+  namespaceSelector:
+    any: true
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 30s
+
+## IMPORTANT
+- Make sure that the serviceMonitor have the label which Prometheus looks to add.
+
+
+Comman PromQL query:
+
+1. Write a PromQL query that shows CPU usage per pod in cores (not seconds), averaged over 5 minutes for payments namespace.
+sum by (pod) (
+  rate(container_cpu_usage_seconds_total{namespace="payments", container!="POD"}[5m])
+)
+
+rate() converts CPU seconds → cores per second
+sum by(pod) aggregates containers belonging to the same pod
+container!="POD" removes the pause container (very important)
+
+2. Write a PromQL query to list pods with memory > 500MB.
+sum by (pod) (
+  container_memory_working_set_bytes{namespace="payments", container!="POD"}
+) / 1024 / 1024 > 500
+
+
+3. calculate the number of restarts of containers in the last 10 minutes.
+sum by (pod) (
+  increase(kube_pod_container_status_restarts_total{namespace="payments"}[10m])
+)
+
+4. A service in namespace payments exposes a request counter metric: http_requests_total
+Write a PromQL query to compute requests per second grouped by endpoint (path).
+sum by (path) (
+  rate(http_requests_total{namespace="payments"}[5m])
+)
+Reason	Explanation
+rate(...[5m])	Smooth average over 5 minutes → reduces noise
+sum by (path)	Shows requests/sec per URL path
+namespace="payments"	Focuses on your service only
+
+5. Compute the Error Rate: http_requests_total{status_code=~"5.."} as a percentage of all requests.
+Error Rate % = (5xx requests rate) / (all requests rate) × 100
+(
+  sum(rate(http_requests_total{namespace="payments", status_code=~"5.."}[5m]))
+/
+  sum(rate(http_requests_total{namespace="payments"}[5m]))
+) * 100
+
+
+6. Calculate 95th percentile request latency using histogram buckets:
+histogram_quantile(
+  0.95,
+  sum by (le, path) (
+    rate(http_request_duration_seconds_bucket{namespace="payments"}[5m])
+  )
+)
+| Concept                         | Explanation                               |
+| ------------------------------- | ----------------------------------------- |
+| `rate(..._bucket)`              | Converts cumulative buckets → rates       |
+| `sum by (le, path)`             | Generate a valid histogram shape per path |
+| `histogram_quantile(0.95, ...)` | Extracts the 95th percentile latency      |

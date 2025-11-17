@@ -1,0 +1,164 @@
+Alertmanager is the component in the Prometheus ecosystem that receives alerts from Prometheus and then routes them to destinations such as: Slack, Email and others.
+Prometheus only evaluates alerting rules.
+Alertmanager delivers those alerts.
+
+Application → Exposes Metrics
+   ↓
+Prometheus → Scrapes Metrics & Evaluates Rules
+   ↓
+If alert expression is TRUE → Prometheus sends alert to Alertmanager
+   ↓
+Alertmanager → Groups, Silences, Routes, Sends Notifications
+
+
+Core Concepts:
+| Concept        | Purpose                                              |
+| -------------- | ---------------------------------------------------- |
+| **Receiver**   | Where alerts are delivered (Slack, Email, etc.)      |
+| **Route**      | Decides *which alerts* go to which receiver(s)       |
+| **Grouping**   | Combine related alerts into **one message**          |
+| **Inhibition** | Suppress certain alerts when another alert is active |
+| **Silencing**  | Temporarily mute an alert (maintenance windows)      |
+
+---
+
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: "default"
+  group_by: ["alertname", "namespace"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 2h
+
+  routes:
+    - match:
+        severity: critical
+      receiver: "critical-slack"
+
+    - match:
+        team: payments
+      receiver: "payments-slack"
+
+receivers:
+  - name: "default"
+    slack_configs:
+      - channel: "#devops-alerts"
+        send_resolved: true
+
+  - name: "critical-slack"
+    slack_configs:
+      - channel: "#critical-alerts"
+        send_resolved: true
+
+  - name: "payments-slack"
+    slack_configs:
+      - channel: "#payments-team"
+        send_resolved: true
+
+
+BreakDown:
+| Field              | Description                                                        |
+| ------------------ | ------------------------------------------------------------------ |
+| `receiver:`        | Default receiver if no other matches                               |
+| `group_by:`        | Alerts with same labels grouped into one message                   |
+| `group_wait:`      | How long Alertmanager waits before sending the **first alert**     |
+| `group_interval:`  | Minimum time between repeated notifications for the **same group** |
+| `repeat_interval:` | Resend alerts periodically if still firing                         |
+| `routes:`          | Overrides default routing rules                                    |
+
+---
+
+# Create a slack webhook secrets
+kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl create secret generic alertmanager-slack-webhook \
+  -n monitoring \
+  --from-literal=SLACK_WEBHOOK_URL="https://hooks.slack.com/services/XXX/YYY/ZZZ"
+
+# alertmanager-config.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: monitoring
+  labels:
+    app: alertmanager
+data:
+  alertmanager.yaml: |-
+    global:
+      resolve_timeout: 5m
+
+    route:
+      receiver: default-slack
+      group_by: ["alertname", "namespace"]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 3h
+
+      routes:
+        - match:
+            severity: critical
+          receiver: critical-slack
+
+        - match:
+            team: payments
+          receiver: payments-slack
+
+    receivers:
+      - name: default-slack
+        slack_configs:
+          - channel: "#devops-alerts"
+            api_url: "${SLACK_WEBHOOK_URL}"
+            send_resolved: true
+
+      - name: critical-slack
+        slack_configs:
+          - channel: "#critical-alerts"
+            api_url: "${SLACK_WEBHOOK_URL}"
+            send_resolved: true
+
+      - name: payments-slack
+        slack_configs:
+          - channel: "#payments-team"
+            api_url: "${SLACK_WEBHOOK_URL}"
+            send_resolved: true
+
+    inhibit_rules:
+      - source_match:
+          severity: critical
+        target_match:
+          severity: warning
+        equal: ["namespace"]
+
+kubectl apply -f alertmanager-config.yaml
+
+# Patch the kube-prometheus-stack to use the config
+helm upgrade kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+  -n monitoring \
+  --set alertmanager.configMapOverrideName=alertmanager-config
+
+
+# Sample Alertrule file: high-memory-alert.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: high-memory-alert
+  namespace: monitoring
+spec:
+  groups:
+  - name: node-alerts
+    rules:
+    - alert: NodeHighMemoryUsage
+      expr: (node_memory_Active_bytes / node_memory_MemTotal_bytes) > 0.85
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Node memory usage is above 85%"
+        description: "Node {{ $labels.instance }} is above 85% memory usage."
+
+kubectl apply -f high-memory-alert.yaml
+
+

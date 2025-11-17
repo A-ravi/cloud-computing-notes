@@ -1,0 +1,75 @@
+## Genearted by `kubectl expose` command
+#  kubectl expose deployment -n monitoring kube-prometheus-stack-grafana --name kube-prometheus-stack-grafana-ext --port 80 --target-port grafana --type=LoadBalancer --dry-run=client -o yaml 
+
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    meta.helm.sh/release-name: kube-prometheus-stack
+    meta.helm.sh/release-namespace: monitoring
+  labels:
+    app.kubernetes.io/instance: kube-prometheus-stack
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/version: 12.2.1
+    helm.sh/chart: grafana-10.1.4
+  name: kube-prometheus-stack-grafana-ext
+  namespace: monitoring
+spec:
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: http-web
+    port: 80
+    protocol: TCP
+    targetPort: grafana
+  selector:
+    app.kubernetes.io/instance: kube-prometheus-stack
+    app.kubernetes.io/name: grafana
+  sessionAffinity: None
+  type: LoadBalancer
+
+## Prometheus LoadBalancer Service YAML file
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    meta.helm.sh/release-name: kube-prometheus-stack
+    meta.helm.sh/release-namespace: monitoring
+  labels:
+    app: kube-prometheus-stack-prometheus
+    app.kubernetes.io/instance: kube-prometheus-stack
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: kube-prometheus-stack
+    app.kubernetes.io/version: 79.4.0
+    chart: kube-prometheus-stack-79.4.0
+    heritage: Helm
+    release: kube-prometheus-stack
+    self-monitor: "true"
+  name: kube-prometheus-stack-prometheus-ext
+  namespace: monitoring
+spec:
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: http-web
+    port: 80
+    protocol: TCP
+    targetPort: 9090
+  - appProtocol: http
+    name: reloader-web
+    port: 8080
+    protocol: TCP
+    targetPort: reloader-web
+  selector:
+    app.kubernetes.io/name: prometheus
+    operator.prometheus.io/name: kube-prometheus-stack-prometheus
+  sessionAffinity: None
+  type: LoadBalancer
+status:
+  loadBalancer: {}
+

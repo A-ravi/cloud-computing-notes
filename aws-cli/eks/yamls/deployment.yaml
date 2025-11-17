@@ -1,0 +1,91 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{APP_NAME}}
+  namespace: {{NAMESPACE}}
+  labels:
+    app: {{APP_NAME}}
+spec:
+  replicas: {{REPLICAS}}
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: {{APP_NAME}}
+  template:
+    metadata:
+      labels:
+        app: {{APP_NAME}}
+    spec:
+      serviceAccountName: {{SERVICE_ACCOUNT}}      # <── NEW
+      automountServiceAccountToken: false          # secure unless needed
+      terminationGracePeriodSeconds: 30
+
+      containers:
+      - name: {{APP_NAME}}
+        image: {{IMAGE}}:{{TAG}}
+        imagePullPolicy: IfNotPresent
+        
+        ports:
+        - containerPort: {{PORT}}
+
+        # ---------------- ENVIRONMENT VARIABLES ----------------
+        env:
+        - name: ENVIRONMENT
+          value: "production"
+        - name: APP_VERSION
+          value: "{{TAG}}"
+
+        - name: CONFIG_VALUE
+          valueFrom:
+            configMapKeyRef:
+              name: {{CONFIGMAP_NAME}}
+              key: {{CONFIG_KEY}}
+
+        - name: SECRET_VALUE
+          valueFrom:
+            secretKeyRef:
+              name: {{SECRET_NAME}}
+              key: {{SECRET_KEY}}
+        # --------------------------------------------------------
+
+        # ---------------- RESOURCE LIMITS -----------------------
+        resources:
+          requests:
+            cpu: "{{CPU_REQUEST}}"
+            memory: "{{MEM_REQUEST}}"
+          limits:
+            cpu: "{{CPU_LIMIT}}"
+            memory: "{{MEM_LIMIT}}"
+        # --------------------------------------------------------
+
+        # ---------------- PROBES ----------------
+        livenessProbe:
+          httpGet:
+            path: /
+            port: {{PORT}}
+          initialDelaySeconds: 10
+          periodSeconds: 10
+
+        readinessProbe:
+          httpGet:
+            path: /
+            port: {{PORT}}
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        # ----------------------------------------
+
+        # ---------------- VOLUME MOUNTS ----------------
+        volumeMounts:
+        - name: {{VOLUME_NAME}}
+          mountPath: {{MOUNT_PATH}}
+        # -----------------------------------------------
+
+      # ---------------- POD VOLUMES -------------------
+      volumes:
+      - name: {{VOLUME_NAME}}
+        emptyDir: {}
+      # ------------------------------------------------
+
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always

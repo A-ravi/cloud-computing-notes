@@ -1,0 +1,104 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{SERVICE_ACCOUNT}}
+  namespace: {{NAMESPACE}}
+  labels:
+    app: {{APP_NAME}}
+automountServiceAccountToken: false
+
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{APP_NAME}}
+  namespace: {{NAMESPACE}}
+  labels:
+    app: {{APP_NAME}}
+spec:
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: {{APP_NAME}}
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+
+  template:
+    metadata:
+      labels:
+        app: {{APP_NAME}}
+    spec:
+      serviceAccountName: {{SERVICE_ACCOUNT}}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+
+      # Optional: run only on certain nodes  
+      nodeSelector:
+        {{NODE_SELECTOR_KEY}}: {{NODE_SELECTOR_VALUE}}   # e.g. kubernetes.io/os: linux
+
+      # Optional: run on tainted nodes
+      tolerations:
+      - key: "{{TOLERATION_KEY}}"
+        operator: "Exists"
+        effect: "NoSchedule"
+
+      containers:
+      - name: {{APP_NAME}}
+        image: {{IMAGE}}:{{TAG}}
+        imagePullPolicy: IfNotPresent
+
+        ports:
+        - containerPort: {{PORT}}
+
+        # ------------- ENV VARS ----------------
+        env:
+        - name: ENVIRONMENT
+          value: "production"
+
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+
+        - name: CONFIG_VALUE
+          valueFrom:
+            configMapKeyRef:
+              name: {{CONFIGMAP}}
+              key: {{CONFIG_KEY}}
+
+        - name: SECRET_VALUE
+          valueFrom:
+            secretKeyRef:
+              name: {{SECRET}}
+              key: {{SECRET_KEY}}
+        # ---------------------------------------
+
+        resources:
+          requests:
+            cpu: "{{CPU_REQUEST}}"
+            memory: "{{MEM_REQUEST}}"
+          limits:
+            cpu: "{{CPU_LIMIT}}"
+            memory: "{{MEM_LIMIT}}"
+
+        # ------------- VOLUME MOUNTS ------------
+        volumeMounts:
+        - name: logs
+          mountPath: {{LOG_MOUNT_PATH}}      # e.g., /var/log/app
+        - name: host-root
+          mountPath: /host
+          readOnly: true
+        # ----------------------------------------
+
+      # ------------- HOST VOLUMES --------------
+      volumes:
+      - name: logs
+        emptyDir: {}
+      - name: host-root
+        hostPath:
+          path: /
+          type: Directory
+      # -----------------------------------------
