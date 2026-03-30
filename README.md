@@ -17,4 +17,4 @@ Welcome! This repository is organized for quick reference and AWS CLI command us
   - [Commands](aws-cli/commands/) — Service-specific CLI command references
   - [EKS](aws-cli/eks/) — Kubernetes cluster management and configurations
   - [KMS](aws-cli/kms/) — Key Management Service operations
-
+  - [Notes Link](https://drive.google.com/drive/folders/13nVNhbtt_uXSzY4Xj_bscvsQe8fNVHOP?usp=drive_link)
