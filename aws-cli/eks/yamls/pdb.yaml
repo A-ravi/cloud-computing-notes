@@ -1,0 +1,36 @@
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: myapp-pdb
+  namespace: default
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: myapp
+---
+
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: myapp-pdb
+  namespace: default
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: myapp
+
+
+
+
+# kubectl create pdb myapp-pdb \
+#   --selector=app=myapp \
+#   --min-available=2 \
+#   --dry-run=client -o yaml
+
+# kubectl create pdb myapp-pdb \
+#   --selector=app=myapp \
+#   --min-available=2 \
+#   --dry-run=client -o yaml

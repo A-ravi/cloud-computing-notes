@@ -1,5 +1,12 @@
 #!/bin/bash
 
+#########################################################
+# For Persistent Storage, we need to install EBS CSI driver
+# Install it using this link: https://docs.aws.amazon.com/eks/latest/userguide/ebs-csi.html
+#  Install helm using the values.yaml below just add -f values.yaml
+
+
+
 echo "Checking helm installation"
 helm version
 echo ""
@@ -29,3 +36,42 @@ echo ""
 
 # Get the Grafana admin password
 #  kubectl get secret -n monitoring kube-prometheus-stack-grafana -o json   | jq -r '.data["admin-password"]'   | base64 --decode; echo
+
+#####################################
+# values.yaml for persistent prometheus installation
+
+# prometheus:
+#   prometheusSpec:
+#     storageSpec:
+#       volumeClaimTemplate:
+#         metadata:
+#           name: prometheus-storage
+#         spec:
+#           accessModes: ["ReadWriteOnce"]
+#           storageClassName: gp2
+#           resources:
+#             requests:
+#               storage: 50Gi
+
+# alertmanager:
+#   alertmanagerSpec:
+#     storage:
+#       volumeClaimTemplate:
+#         metadata:
+#           name: alertmanager-storage
+#         spec:
+#           accessModes: ["ReadWriteOnce"]
+#           storageClassName: gp2
+#           resources:
+#             requests:
+#               storage: 10Gi
+
+# grafana:
+#   persistence:
+#     enabled: true
+#     type: pvc
+#     storageClassName: gp2
+#     accessModes:
+#       - ReadWriteOnce
+#     size: 10Gi
+# }

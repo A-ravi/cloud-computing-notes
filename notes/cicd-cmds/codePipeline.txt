@@ -1,0 +1,190 @@
+A fully managed CI/CD orchestration service that:
+    Detects source changes
+    Triggers build stages
+    Runs deployments
+    Integrates approvals
+    Creates artifacts
+    Handles rollbacks (with CodeDeploy/ECS/CloudFormation)
+It is like GitHub Actions / Jenkins pipelines but:
+    Serverless
+    Declarative
+    Stateful (each stage remembers its result)
+
+Heavily integrated with AWS IAM/ECR/S3/CFN
+
+Think of CodePipeline as AWS’s orchestrator for CI/CD.
+It is NOT a build system or deploy system.
+It is the automation glue.
+
+How CodePipeline Works (Architecture View)
+A pipeline is made of stages → actions → transitions.
+[Source] -> [Build] -> [Test] -> [Deploy] -> [Prod Approval] -> [Prod Deploy]
+1. Source Stage
+    Triggers pipeline execution.
+    Common sources:
+        GitHub (webhook)
+        CodeCommit
+        S3 (zip upload)
+        Bitbucket
+        ECR (image push)
+2. Build Stage
+    sually uses CodeBuild.
+3. Test Stage
+    Again CodeBuild, or Lambda test, or custom actions.
+4. Deploy Stage 
+    Options:
+        CodeDeploy EC2
+        CodeDeploy ECS
+        CodeDeploy Lambda
+        S3 static website upload
+        CloudFormation stack update
+5. Approval Stage
+    Manual approvals with IAM-secured reviewers.
+6. Prod Stage
+    Deploy to production environment.
+    
+Artifacts are ZIP files passed between stages.
+Source Stage → SourceArtifact.zip
+Build stage → BuildOutput.zip
+Artifacts are stored in your pipeline’s S3 artifact bucket.
+This is how CodePipeline shares:
+    buildspec outputs
+    Docker image metadata
+    Lambda deployment packages
+    CFN templates
+    JSON files (for ECS image definitions)
+
+CodePipeline does NOT run builds or deploys
+It just triggers:
+    CodeBuild (for build/test)
+    CodeDeploy (for deployment)
+    CloudFormation (for infra)
+    ECS deploys
+CodeBuild runs compute;
+CodeDeploy performs deploy;
+Pipeline orchestrates.
+
+Manual Approval Blocks Next Stage
+    Approvals benefit from SNS notifications.
+
+Common Pipeline Patterns
+1. Docker CI/CD → ECR → ECS
+Stages:
+    Source
+    Build (build Docker + push)
+    Post-build: generate imagedefinitions.json
+    Deploy (ECS)
+2. Lambda CI/CD
+Source → Build → Deploy
+Build step zips Lambda package
+Deploy step updates Lambda
+
+
+##########################################################
+Sample Complete pipeline setup
+
+Folder Layout:
+repo/
+ ├── Dockerfile
+ ├── src/
+ ├── k8s/
+ │    ├── deployment.yaml
+ │    └── service.yaml
+ ├── buildspec-build.yml
+ └── buildspec-deploy.yml
+
+#---------------------------------------------------
+# Buildspec-build.yml
+version: 0.2
+
+env:
+  variables:
+    DOCKERFILE_PATH: "./Dockerfile"
+    MANIFEST_FILE: "k8s/deployment.yaml"
+  exported-variables:
+    - IMAGE_TAG
+    - IMAGE_URI
+
+phases:
+  install:
+    runtime-versions:
+      docker: 20
+    commands:
+      - echo "Ensuring Docker is ready..."
+  pre_build:
+    commands:
+      - echo "Logging in to ECR..."
+      - aws ecr get-login-password --region $AWS_REGION \
+        | docker login --username AWS --password-stdin $REPOSITORY_URI
+
+      - echo "Computing image tag..."
+      - IMAGE_TAG=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c1-8)
+      - IMAGE_URI="$REPOSITORY_URI:$IMAGE_TAG"
+      - echo "IMAGE_URI=$IMAGE_URI"
+
+  build:
+    commands:
+      - echo "Building Docker image..."
+      - docker build -t $IMAGE_URI -f $DOCKERFILE_PATH .
+
+  post_build:
+    commands:
+      - echo "Pushing image..."
+      - docker push $IMAGE_URI
+
+      - echo "Updating Kubernetes manifest..."
+      - sed -i "s|image:.*|image: $IMAGE_URI|g" $MANIFEST_FILE
+
+      - echo "Creating deployment artifacts..."
+      - mkdir -p output
+      - cp -r k8s output/
+
+artifacts:
+  files:
+    - output/**/*
+  name: deploy-artifacts
+
+#---------------------------------------------------
+# buildspec-deploy.yml
+version: 0.2
+
+env:
+  variables:
+    K8S_DIR: "output/k8s"
+    ROLE_TO_ASSUME: "arn:aws:iam::<ACCOUNT_ID>:role/EKSDeployRole"
+
+phases:
+  install:
+    runtime-versions:
+      kubectl: 1.28
+    commands:
+      - echo "Installing kubectl & aws-iam-authenticator..."
+      - curl -o aws-iam-authenticator https://amazon-eks.s3.us-west-2.amazonaws.com/latest/bin/linux/amd64/aws-iam-authenticator
+      - chmod +x aws-iam-authenticator
+      - mv aws-iam-authenticator /usr/local/bin/
+
+  pre_build:
+    commands:
+      - echo "Assuming deployment role..."
+      - >
+        CREDENTIALS=$(aws sts assume-role
+        --role-arn $ROLE_TO_ASSUME
+        --role-session-name codebuild-ekscd)
+      - export AWS_ACCESS_KEY_ID=$(echo $CREDENTIALS | jq -r '.Credentials.AccessKeyId')
+      - export AWS_SECRET_ACCESS_KEY=$(echo $CREDENTIALS | jq -r '.Credentials.SecretAccessKey')
+      - export AWS_SESSION_TOKEN=$(echo $CREDENTIALS | jq -r '.Credentials.SessionToken')
+
+      - echo "Downloading kubeconfig..."
+      - aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
+
+  build:
+    commands:
+      - echo "Deploying to EKS..."
+      - kubectl apply -f $K8S_DIR
+
+      - echo "Checking rollout status..."
+      - kubectl rollout status deployment/myapp-deployment --timeout=120s
+
+artifacts:
+  files:
+    - '**/*'

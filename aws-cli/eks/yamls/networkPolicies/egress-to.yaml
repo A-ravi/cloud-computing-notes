@@ -1,0 +1,27 @@
+kind: NetworkPolicy
+metadata:
+  name: backend-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 203.0.113.10/32   # external API
+    ports:
+    - port: 443
+  - to:
+    - namespaceSelector: {}     # kube-system DNS
+    ports:
+    - port: 53
+      protocol: UDP
+---
+# Use this specify the namespace with label for isolation
+# spec:
+#   podSelector: {}
+#   ingress:
+#   - from:
+#     - namespaceSelector:
+#         matchLabels:
+#           name: myapp

@@ -1,0 +1,48 @@
+version: 0.2
+
+env:
+  variables:
+    STAGE: dev
+  parameter-store:
+    DB_PASSWORD: "/app/dbpassword"
+  secrets-manager:
+    API_KEY: "myapi:apikey"
+  exported-variables:
+    - IMAGE_TAG
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 18
+    commands:
+      - npm install
+  pre_build:
+    commands:
+      - echo Logging in to ECR...
+      - $(aws ecr get-login --no-include-email)
+  build:
+    commands:
+      - IMAGE_TAG=$(date +%s)
+      - echo "Image tag: $IMAGE_TAG"
+      - docker build -t myapp:$IMAGE_TAG .
+  post_build:
+    commands:
+      - echo Pushing image...
+      - docker push myapp:$IMAGE_TAG
+
+artifacts:
+  files:
+    - '**/*'
+  base-directory: dist/
+  name: build-output.zip
+  discard-paths: yes
+
+cache:
+  paths:
+    - 'node_modules/**/*'
+
+reports:
+  testReports:
+    files:
+      - 'reports/*.xml'
+    file-format: JunitXml

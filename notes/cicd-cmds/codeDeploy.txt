@@ -1,0 +1,101 @@
+CodeDeploy = Automated deployment engine for EC2, On-Prem Servers, Lambda, and ECS.
+
+It does not build artifacts, does not orchestrate multi-service workflows (that’s CodePipeline).
+CodeDeploy is focused purely on safe, controlled, automated deployment into compute environments.
+
+A. EC2/On-Prem (Traditional Deployments)
+    Used with:
+        Auto Scaling Groups
+        Individual EC2 instances
+        On-prem servers registered via agent
+    Supports:
+        In-place deployments
+        Blue/Green deployments
+    This uses:
+        CodeDeploy agent installed on each server
+        AppSpec file controlling hooks + file copy behavior
+B. Application Deployments for ECS
+Handles:
+    Blue/green deployments for ECS services
+    Multiple target groups
+    Traffic shifting via ALB/NLB
+Uses:
+    AppSpec ECS file (json)
+    Task definitions
+    Load balancer traffic shifting
+
+C. Lambda Deployments
+Handles:
+    Weighted alias shifting (e.g., 10% → 30% → 100%)
+    Canary or linear traffic shifting
+Uses:
+    AppSpec Lambda file
+
+CodeDeploy Core Concepts
+
+Applications: A logical unit grouping your deployments.
+MyApp-Staging
+MyApp-Production
+(Think: “deployment namespace”)
+
+Deployment Groups
+Defines where and how CodeDeploy deploys.
+Contains:
+    EC2 tags / ASG names / ECS service name / Lambda alias
+    Load balancer config (optional)
+    Deployment settings (canary / linear / all-at-once)
+    Alarms for rollback
+    CloudWatch event triggers
+The Deployment Group is the MOST important concept.
+
+Revisions (Artifacts)
+The version of your app that will be deployed.
+Stored in:
+    S3
+    GitHub ZIP
+    CodePipeline artifact
+Contains:
+    AppSpec file
+    Your application files
+    Any scripts referenced in AppSpec
+
+AppSpec File
+This is the heart of CodeDeploy.
+Defines:
+What to deploy
+Where to deploy it
+What lifecycle hooks to run
+Any scripts to run before/after deployment
+CodeDeploy uses AppSpec.
+
+Deployment Types:
+- Inplace Deployment
+- EC2 Blue/Green Deployment
+- ECS Blue/Green Deployment
+- Lambda traffic shifting
+
+Deployment Configurations
+Patterns such as:
+For EC2:
+    CodeDeployDefault.OneAtATime
+    CodeDeployDefault.HalfAtATime
+    CodeDeployDefault.AllAtOnce
+For Lambda:
+    Canary10Percent5Minutes
+    Linear10PercentEvery1Minute
+    AllAtOnce
+For ECS:
+    ECSLinear
+    ECSCanary
+    Custom configs via API
+
+Rollback
+CodeDeploy supports automatic rollback based on:
+    CloudWatch alarms
+    Deployment failures
+    Manual triggers
+Rollback strategy:
+    For ECS/Lambda — revert alias/target group
+    For EC2 blue/green — restore green/blue environment
+    For EC2 in-place — revert from last revision (only if version stored)
+

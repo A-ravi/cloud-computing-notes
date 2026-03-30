@@ -1,0 +1,339 @@
+What Are Network Policies?
+
+A Kubernetes NetworkPolicy is a declarative set of rules defining how traffic is allowed to ingress into or egress out of selected pods.
+Think of each policy as:
+Select Pods → using labels
+Define Traffic → ingress/egress
+Define Allowed Sources/Destinations → pods, namespaces, IP ranges, ports
+
+Kubernetes does not enforce policies.
+Your CNI plugin does.
+
+NetworkPolicies apply to selected pods.
+If POD A is selected by a policy with ingress rules → its incoming traffic becomes restricted.
+If POD A is selected by a policy with egress rules → its outgoing traffic becomes restricted.
+Traffic to/from other pods not selected is unaffected.
+
+Structure of NetworkPolicies:
+spec:
+  podSelector:              # which pods are protected
+  ingress:
+  - from:                   # allowed sources
+    - podSelector:
+        matchLabels:
+    - namespaceSelector:
+    - ipBlock:
+      ports:
+
+Some Patterns:
+Pattern 1 — Default Deny + Explicit Allow
+Enforce strict, controlled communication.
+Combine:
+namespace-level deny-all
+pod-level allow rules
+
+Pattern 2 — Zero Trust
+Every service must explicitly declare who it trusts.
+
+Pattern 3 — Egress Gateway Control
+Only allow egress from:
+sidecar proxy
+API gateway
+NAT/egress-controller
+Good for:
+controlling external API usage
+FinTech compliance
+
+Pattern 4 — Multi-Tenant Isolation
+Use:
+namespaceSelector
+service accounts (with Cilium)
+eBPF
+
+Some Important points:
+- NetworkPolicies DO NOT apply to:
+    kubelet → pod traffic
+    host networking pods
+    NodePorts
+    LoadBalancer traffic hitting NodePort on node
+    service VIP → pod traffic (depending on CNI)
+    sidecar injected traffic (mesh influences behavior)
+
+- Some CNIs treat DNS differently
+    Calico vs Cilium have different behavior for DNS rules.
+
+- ipBlock does not apply to pods inside cluster
+    engineers often expect it to.
+
+- Policy evaluation is union, not priority
+    All policies are OR’d together.
+
+- A network policy selecting a pod restricts that pod.
+    Selecting the source pod does NOT restrict the destination.
+
+######################################################################
+Some Networking Polcies Examples:
+
+# Default Deny (Namespace Level)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+
+# Allow All Ingress Inside Namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-namespace-ingress
+spec:
+  podSelector: {}
+  ingress:
+  - from:
+    - podSelector: {}
+
+# Allow DNS (Critical When Using Egress Policies)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+
+# Allow Pod → Specific External IPs (Egress) 
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-payment
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+  policyTypes: [Egress]
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 203.0.113.10/32
+    ports:
+    - port: 443
+      protocol: TCP
+
+#  Allow Pod → Specific Namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-payment
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+  policyTypes: [Egress]
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 203.0.113.10/32
+    ports:
+    - port: 443
+      protocol: TCP
+
+# Allow Ingress Only From Certain Pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-allow-frontend
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: frontend
+    ports:
+    - port: 8080
+
+# Deny All Egress Except Internal Cluster Traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-only-cluster-egress
+spec:
+  podSelector: {}
+  egress:
+  - to:
+    - podSelector: {}       # only cluster internal
+
+
+# Block Internet Access for a Namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: block-internet
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 10.0.0.0/8    # allow internal networks only
+
+# Allow Service A → Service B (multi-port)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-two-services
+spec:
+  podSelector:
+    matchLabels:
+      app: service-a
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: service-b
+    ports:
+    - port: 7001
+    - port: 7002
+
+# Allow Health Check Traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-kubelet
+spec:
+  podSelector: {}
+  ingress:
+  - from:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+    ports:
+    - port: 10250
+
+# Block Pod-to-Pod Traffic Except Same App
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: isolate-app
+spec:
+  podSelector:
+    matchLabels:
+      app: myapp
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: myapp
+
+# Allow Ingress Only From a Namespace (Team-Based Isolation)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-team-a-only
+spec:
+  podSelector: {}
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          team: team-a
+
+############
+Cilium (L7) Policy Boilerplates
+# Allow Only Certain HTTP Paths (Cilium)
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-specific-endpoints
+spec:
+  endpointSelector:
+    matchLabels:
+      app: backend
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app: frontend
+    toPorts:
+    - ports:
+      - port: "8080"
+        protocol: TCP
+      rules:
+        http:
+        - method: GET
+          path: "/health"
+        - method: POST
+          path: "/login"
+
+# Allow DNS Names (FQDN) — Cilium Only
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-github-egress
+spec:
+  endpointSelector:
+    matchLabels:
+      app: ci-runner
+  egress:
+  - toFQDNs:
+    - matchName: api.github.com
+
+##############################################
+## Complete Template: Zero-Trust Per Namespace
+# 1. Deny all traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress", "Egress"]
+---
+# 2. Allow DNS
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+spec:
+  podSelector: {}
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - port: 53
+      protocol: UDP
+---
+# 3. Allow App-Specific Traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-app-communication
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: frontend
+    ports:
+    - port: 8080

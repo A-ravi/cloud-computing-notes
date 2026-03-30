@@ -1,0 +1,98 @@
+AWS CodeBuild is a fully managed build and test service that runs containerized build environments to compile code, run unit tests, build artifacts, and push images.
+Just give CodeBuild:
+Source
+Buildspec
+Environment
+Artifacts
+It runs → produces output → destroys the environment.
+
+How does CodeBuild work? (Internals)
+CodeBuild executes builds in these phases:
+Initialize Phase
+    Pulls the Docker image for build environment (standard or custom)
+    Sets up environment variables
+    Configures IAM role credentials
+Pre-Build Phase
+    Install dependencies
+    Login to ECR / Docker registries
+Build Phase
+    Run compilation, tests, packaging
+    Run make, npm, maven, go build, etc.
+Post-Build Phase
+    Upload artifacts
+    Push Docker images
+    Send reports
+Complete
+    Container destroyed
+    Logs sent to CloudWatch
+You can also bring your own build images
+Any Docker image that runs in Linux can be a CodeBuild environment.
+
+Which features matter most? (Production-grade)
+✔ 1. Buildspec.yaml
+    Blueprint for your build.
+✔ 2. Environment Variables
+    Supports:
+        Plain text
+        Parameter Store
+        Secrets Manager
+        Encrypted
+✔ 3. Caching
+    Local cache (docker layer cache)
+    S3 cache (dependencies)
+✔ 4. Privileged Mode
+    Required for Docker builds.
+✔ 5. VPC Build
+    Run builds inside your VPC (for internal repos or private endpoints).
+✔ 6. Report Groups
+    Store JUnit/coverage reports.
+✔ 7. Artifacts
+    Output to:
+        S3
+        ECR
+        Others
+
+
+AWS CodeBuild – Buildspec.yml Structure
+You can think of the buildspec.yml as CodeBuild’s “execution contract.”
+It tells CodeBuild:
+    What to install
+    What to execute
+    What to produce
+    What to upload
+    What to cache
+    What to report
+Below is the complete breakdown of every section with examples, insider notes, and common pitfalls.
+
+version: 0.2        Defines buildspec format version. Always use 0.2
+env:
+  variables:                        plaintext environment variables
+    STAGE: dev
+    BUCKET: my-app-artifacts
+  parameter-store:                  pulls values from SSM Parameter Store
+    DB_PASSWORD: /app/db/password
+  secrets-manager:                  pulls secrets from AWS Secrets Manager
+    API_KEY: myApiSecret:apikey
+  exported-variables:               Use exported-variables to share dynamic values (e.g., S3 filename, version number).
+    - IMAGE_TAG
+phases:                             The heart of CodeBuild. 
+  install:                          install → prepare environment (SDKs, tools)
+    runtime-versions:
+      nodejs: 18
+    commands:
+      - npm install -g aws-cdk
+  pre_build:                        pre_build → authentication, dependency installs
+    commands:
+      - echo Logging into ECR...
+  build:                            build → main job (webpack, tests, docker build)
+    commands:
+      - echo Building the project...
+  post_build:                       post_build → pushing images, generating artifacts, metadata
+    commands:
+      - echo Build complete
+artifacts:                          Artifacts are files uploaded to S3 after the build.
+  files:                            which files to upload
+    - '**/*'
+  name: myapp.zip                   name of output artifact
+  discard-paths: yes                removes directory structure
+  base-directory: dist/             folder to upload from

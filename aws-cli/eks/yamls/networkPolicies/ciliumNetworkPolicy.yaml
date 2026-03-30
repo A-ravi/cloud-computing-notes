@@ -1,0 +1,21 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-l7
+spec:
+  endpointSelector:
+    matchLabels:
+      app: backend
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app: frontend
+    toPorts:
+    - ports:
+      - port: "8080"
+      rules:
+        http:
+        - method: GET
+          path: "/status"
+        - method: POST
+          path: "/login"
